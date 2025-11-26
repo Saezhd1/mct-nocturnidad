@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>MCT cálculo complemento de nocturnidad</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <header class="header">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo MCT" class="logo" />
+    <h1>MCT cálculo complemento de nocturnidad</h1>
+  </header>
+
+  <section class="form-section">
+    <form id="analyze-form">
+      <div>
+        <label>Código de empleado</label>
+        <input name="empleado" required />
+      </div>
+      <div>
+        <label>Nombre completo</label>
+        <input name="nombre" required />
+      </div>
+      <div>
+        <label>Adjuntar PDFs (múltiples)</label>
+        <input type="file" name="files" id="files" accept="application/pdf" multiple required />
+      </div>
+
+      <button type="submit">Analizar</button>
+    </form>
+
+    <div id="progress" class="progress hidden">
+      <div class="bar" id="bar"></div>
+      <span id="progress-text">Procesando PDFs…</span>
+    </div>
+  </section>
+
+  <section id="results" class="hidden">
+    <h2>Resultados previos</h2>
+    <div id="summary"></div>
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>HI</th>
+          <th>HF</th>
+          <th>Minutos nocturnos</th>
+          <th>Importe (€)</th>
+        </tr>
+      </thead>
+      <tbody id="detail-body"></tbody>
+    </table>
+    <button id="download-btn">Descargar informe PDF</button>
+  </section>
+
+  <script>
+    const form = document.getElementById('analyze-form');
+    const progress = document.getElementById('progress');
+    const bar = document.getElementById('bar');
+    const progressText = document.getElementById('progress-text');
+    const results = document.getElementById('results');
+    const detailBody = document.getElementById('detail-body');
+    const summaryDiv = document.getElementById('summary');
+    const downloadBtn = document.getElementById('download-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      progress.classList.remove('hidden');
+      bar.style.width = '20%';
+      progressText.textContent = 'Subiendo y validando…';
+
+      const fd = new FormData(form);
+      const filesInput = document.getElementById('files');
+      for (const f of filesInput.files) fd.append('files', f);
+
+      bar.style.width = '40%';
+      progressText.textContent = 'Analizando PDFs…';
+
+      const res = await fetch('/analyze', { method: 'POST', body: fd });
+      if (!res.ok) {
+        progressText.textContent = 'Error en el análisis';
+        return;
+      }
+      bar.style.width = '80%';
+      progressText.textContent = 'Generando resultados…';
+
+      const data = await res.json();
+
+      // Pintar detalle
+      detailBody.innerHTML = '';
+      for (const d of data.detalle) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${d.fecha}</td>
+          <td>${d.hi}</td>
+          <td>${d.hf}</td>
+          <td>${d.minutos}</td>
+          <td>${d.importe.toFixed(2)}</td>
+        `;
+        detailBody.appendChild(tr);
+      }
+
+      // Resumen
+      summaryDiv.innerHTML = `
+        <h3>Resumen mensual</h3>
+        ${Object.entries(data.resumen_mensual).map(([k,v]) => `<div>${k}: ${v.minutos} min, ${v.importe.toFixed(2)} €</div>`).join('')}
+        <h3>Resumen anual</h3>
+        ${Object.entries(data.resumen_anual).map(([k,v]) => `<div>${k}: ${v.minutos} min, ${v.importe.toFixed(2)} €</div>`).join('')}
+        <h3>Resumen global</h3>
+        <div>${data.resumen_global.minutos} min, ${data.resumen_global.importe.toFixed(2)} €</div>
+      `;
+
+      bar.style.width = '100%';
+      progressText.textContent = 'Completado';
+      results.classList.remove('hidden');
+
+      // Descargar PDF
+      downloadBtn.onclick = async () => {
+        const payload = {
+          empleado: data.empleado,
+          nombre: data.nombre,
+          detalle: data.detalle,
+          resumen_mensual: data.resumen_mensual,
+          resumen_anual: data.resumen_anual,
+          resumen_global: data.resumen_global
+        };
+        const res = await fetch('/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `MCT_nocturnidad_${data.empleado}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      };
+    });
+  </script>
+</body>
+</html>
