@@ -5,9 +5,18 @@ RATE_NEW = 0.062    # desde 26/04/2025
 OLD_START = datetime.strptime("30/03/2022", "%d/%m/%Y")
 OLD_END   = datetime.strptime("25/04/2025", "%d/%m/%Y")
 
-def parse_dt(fecha_ddmmyyyy, hhmm):
-    d = datetime.strptime(fecha_ddmmyyyy, "%d/%m/%Y")
-    h, m = map(int, hhmm.split(":"))
+def parse_dt(fecha_str, hora_str):
+    """
+    Convierte fecha + hora en datetime, interpretando horas >=24 como wrap-around.
+    Mantiene siempre la misma fecha de la línea original.
+    """
+    d = datetime.strptime(fecha_str, "%d/%m/%Y")
+    h, m = map(int, hora_str.split(":"))
+
+    # Normalizar horas fuera de rango
+    if h >= 24:
+        h = h % 24  # wrap-around dentro del mismo día
+
     return d.replace(hour=h, minute=m)
 
 def minutes_overlap(a_start, a_end, b_start, b_end):
@@ -68,4 +77,5 @@ def calcular_nocturnidad(registros):
 
     # Orden por fecha
     detalle.sort(key=lambda d: datetime.strptime(d["fecha"], "%d/%m/%Y"))
+
     return detalle
