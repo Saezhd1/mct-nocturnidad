@@ -66,14 +66,27 @@ def calcular_minutos_nocturnos(hi_dt, hf_dt):
     """
     Calcula los minutos nocturnos entre dos datetimes.
     Considera nocturnidad entre 22:00 y 06:00.
+    Optimizado: calcula por rangos en lugar de recorrer minuto a minuto.
     """
+    if hf_dt <= hi_dt:
+        return 0
+
     minutos = 0
-    actual = hi_dt
-    while actual < hf_dt:
-        if actual.hour >= 22 or actual.hour < 6:
-            minutos += 1
-        actual += timedelta(minutes=1)
+
+    # Tramo nocturno 1: de 22:00 a 24:00
+    inicio1 = hi_dt.replace(hour=22, minute=0)
+    fin1 = hi_dt.replace(hour=23, minute=59)
+    if hf_dt > inicio1:
+        minutos += max(0, (min(hf_dt, fin1) - max(hi_dt, inicio1)).seconds // 60)
+
+    # Tramo nocturno 2: de 00:00 a 06:00 (del mismo día)
+    inicio2 = hi_dt.replace(hour=0, minute=0)
+    fin2 = hi_dt.replace(hour=6, minute=0)
+    if hf_dt > inicio2:
+        minutos += max(0, (min(hf_dt, fin2) - max(hi_dt, inicio2)).seconds // 60)
+
     return minutos
+
 
 def calcular_importe(minutos):
     """
@@ -82,3 +95,4 @@ def calcular_importe(minutos):
     - Desde 26/04/2025: 0,062 €/min
     """
     return round(minutos * 0.062, 2)
+
