@@ -1,24 +1,8 @@
 from datetime import datetime, timedelta
 
-def parse_dt(fecha_str, hora_str):
-    """
-    Convierte fecha + hora en datetime, interpretando horas >=24 como wrap-around.
-    Mantiene siempre la misma fecha de la línea original.
-    Ejemplos:
-      24:00 -> 00:00
-      24:45 -> 00:45
-      25:30 -> 01:30
-    """
-    d = datetime.strptime(fecha_str, "%d/%m/%Y")
-    try:
-        h, m = map(int, hora_str.split(":"))
-    except Exception:
-        raise ValueError(f"Formato de hora inválido: {hora_str}")
-
-    if h >= 24:
-        h = h % 24  # wrap-around dentro del mismo día
-
-    return d.replace(hour=h, minute=m)
+# Fechas de referencia
+MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
+CHANGE_DATE = datetime.strptime("26/04/2025", "%d/%m/%Y")
 
 def calcular_nocturnidad(registros):
     detalle = []
@@ -27,79 +11,72 @@ def calcular_nocturnidad(registros):
     resumen_global = {"minutos": 0, "importe": 0.0}
 
     for r in registros:
-        try:
-            hi_dt = parse_dt(r["fecha"], r["hi"])
-            hf_dt = parse_dt(r["fecha"], r["hf"])
-        except ValueError as e:
-            print(f"Registro inválido: {r} -> {e}")
+        fecha = datetime.strptime(r["fecha"], "%d/%m/%Y")
+
+        # Filtrar fechas anteriores
+        if fecha < MIN_DATE:
             continue
 
-        minutos = calcular_minutos_nocturnos(hi_dt, hf_dt)
-        if minutos > 0:
-            importe = calcular_importe(minutos)
-            detalle.append({
-                "fecha": r["fecha"],
-                "hi": r["hi"],
-                "hf": r["hf"],
-                "minutos": minutos,
-                "importe": importe
-            })
+        # Convertir HI y HF a datetime
+        hi_h, hi_m = map(int, r["hi"].split(":"))
+        hf_h, hf_m = map(int, r["hf"].split(":"))
+        hi_dt = datetime(fecha.year, fecha.month, fecha.day, hi_h, hi_m)
+        hf_dt = datetime(fecha.year, fecha.month, fecha.day, hf_h, hf_m)
 
-            mes = hi_dt.strftime("%Y-%m")
-            if mes not in resumen_mensual:
-                resumen_mensual[mes] = {"minutos": 0, "importe": 0.0}
-            resumen_mensual[mes]["minutos"] += minutos
-            resumen_mensual[mes]["importe"] += importe
+        # Si HF < HI, asumimos que cruza medianoche pero mantenemos la misma fecha
+        if hf_dt < hi_dt:
+            hf_dt += timedelta(days=1)
 
-            año = hi_dt.strftime("%Y")
-            if año not in resumen_anual:
-                resumen_anual[año] = {"minutos": 0, "importe": 0.0}
-            resumen_anual[año]["minutos"] += minutos
-            resumen_anual[año]["importe"] += importe
+        minutos_nocturnos = 0
 
-            resumen_global["minutos"] += minutos
-            resumen_global["importe"] += importe
+        # Tramo 1: 04:00–06:00
+        inicio1 = datetime(fecha.year, fecha.month, fecha.day, 4, 0)
+        fin1 = datetime(fecha.year, fecha.month, fecha.day, 6, 0)
+        minutos_nocturnos += calcular_interseccion(hi_dt, hf_dt, inicio1, fin1)
+
+        # Tramo 2: 22:00–00:59 (lo tratamos como hasta las 01:00 del mismo día siguiente)
+        inicio2 = datetime(fecha.year, fecha.month, fecha.day, 22, 0)
+        fin2 = datetime(fecha.year, fecha.month, fecha.day, 1, 0) + timedelta(days=1)
+        minutos_nocturnos += calcular_interseccion(hi_dt, hf_dt, inicio2, fin2)
+
+        # Calcular importe según fecha
+        if fecha < CHANGE_DATE:
+            importe = minutos_nocturnos * 0.05
+        else:
+            importe = minutos_nocturnos * 0.062
+
+        # Guardar detalle
+        detalle.append({
+            "fecha": r["fecha"],
+            "hi": r["hi"],
+            "hf": r["hf"],
+            "minutos": minutos_nocturnos,
+            "importe": round(importe, 2)
+        })
+
+        # Resumen mensual
+        mes = fecha.strftime("%Y-%m")
+        resumen_mensual.setdefault(mes, {"minutos": 0, "importe": 0.0})
+        resumen_mensual[mes]["minutos"] += minutos_nocturnos
+        resumen_mensual[mes]["importe"] += importe
+
+        # Resumen anual
+        anio = fecha.strftime("%Y")
+        resumen_anual.setdefault(anio, {"minutos": 0, "importe": 0.0})
+        resumen_anual[anio]["minutos"] += minutos_nocturnos
+        resumen_anual[anio]["importe"] += importe
+
+        # Resumen global
+        resumen_global["minutos"] += minutos_nocturnos
+        resumen_global["importe"] += importe
 
     return detalle, resumen_mensual, resumen_anual, resumen_global
 
-def calcular_minutos_nocturnos(hi_dt, hf_dt):
-    """
-    Calcula los minutos nocturnos entre dos datetimes.
-    Considera nocturnidad entre 22:00 y 06:00.
-    Optimizado: calcula por rangos, incluyendo cruces de medianoche.
-    """
-    if hf_dt <= hi_dt:
-        return 0
 
-    minutos = 0
-
-    # Definir intervalos de nocturnidad
-    nocturnidad_intervalos = [
-        (hi_dt.replace(hour=22, minute=0), hi_dt.replace(hour=23, minute=59)),
-        (hi_dt.replace(hour=0, minute=0), hi_dt.replace(hour=6, minute=0))
-    ]
-
-    for inicio, fin in nocturnidad_intervalos:
-        # Si el fin está antes que el inicio (caso cruce de día), ajustamos
-        if fin < inicio:
-            fin += timedelta(days=1)
-
-        # Ajustar hf_dt si cruza medianoche
-        hf = hf_dt
-        if hf < hi_dt:
-            hf += timedelta(days=1)
-
-        minutos += max(0, (min(hf, fin) - max(hi_dt, inicio)).seconds // 60)
-
-    return minutos
-
-
-def calcular_importe(minutos):
-    """
-    Calcula el importe según las reglas legales:
-    - Hasta 25/04/2025: 0,05 €/min
-    - Desde 26/04/2025: 0,062 €/min
-    """
-    return round(minutos * 0.062, 2)
-
-
+def calcular_interseccion(hi_dt, hf_dt, inicio, fin):
+    """Devuelve los minutos de intersección entre [hi_dt, hf_dt] y [inicio, fin]."""
+    inicio_real = max(hi_dt, inicio)
+    fin_real = min(hf_dt, fin)
+    if fin_real > inicio_real:
+        return int((fin_real - inicio_real).total_seconds() // 60)
+    return 0
