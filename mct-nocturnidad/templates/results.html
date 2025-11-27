@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Resultados Nocturnidad</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <h1>Resultados del análisis</h1>
+
+    <!-- Tabla de detalle -->
+    <table>
+        <thead>
+            <tr>
+                <th>Fecha</th>
+                <th>HI</th>
+                <th>HF</th>
+                <th>Minutos nocturnos</th>
+                <th>Importe (€)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in detalle %}
+            <tr>
+                <td>{{ d.fecha }}</td>
+                <td>{{ d.hi }}</td>
+                <td>{{ d.hf }}</td>
+                <td>{{ d.minutos }}</td>
+                <td>{{ d.importe }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Resúmenes -->
+    <h2>Resumen mensual</h2>
+    <pre>{{ resumen_mensual | tojson }}</pre>
+
+    <h2>Resumen anual</h2>
+    <pre>{{ resumen_anual | tojson }}</pre>
+
+    <h2>Resumen global</h2>
+    <pre>{{ resumen_global | tojson }}</pre>
+
+    <!-- Formulario para descargar PDF -->
+    <form action="{{ url_for('download') }}" method="post">
+        <!-- Pasamos los datos como campos ocultos -->
+        <input type="hidden" name="detalle" value='{{ detalle | tojson }}'>
+        <input type="hidden" name="resumen_mensual" value='{{ resumen_mensual | tojson }}'>
+        <input type="hidden" name="resumen_anual" value='{{ resumen_anual | tojson }}'>
+        <input type="hidden" name="resumen_global" value='{{ resumen_global | tojson }}'>
+
+        <button type="submit">Descargar informe PDF</button>
+    </form>
+</body>
+</html>
