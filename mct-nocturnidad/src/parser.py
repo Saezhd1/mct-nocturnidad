@@ -8,22 +8,19 @@ TIME_RX = re.compile(r"\b\d{1,2}:\d{2}\b")
 MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
 
 def norm_time(t):
-    """
-    Normaliza formato HH:MM a dos dígitos en la hora.
-    Nota: la hora puede ser >=24; la interpretación se hace en nocturnidad.py.
-    """
     hh, mm = t.split(":")
     return f"{int(hh):02d}:{mm}"
 
 def extract_lines(page):
-    # Reconstruir líneas por flujo de texto (robusto a PDFs con rowspans)
     return (page.extract_text() or "").splitlines()
 
 def parse_single_pdf(file):
     rows = []
     with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, start=1):
             lines = extract_lines(page)
+            print(f"[DEBUG] Página {page_num}: {len(lines)} líneas extraídas")
+
             buffer = []
             for line in lines:
                 if "TABLA DE TOTALIZADOS" in line:
@@ -50,60 +47,40 @@ def parse_single_pdf(file):
             if current_date and date_lines:
                 rows.extend(extract_row(current_date, date_lines))
 
+    print(f"[DEBUG] Total registros parseados: {len(rows)}")
     return rows
 
 def extract_row(date_str, lines):
-    """
-    De un bloque de 1 o 2 líneas con la misma fecha, extrae HI_top y HF_bottom.
-    """
     try:
         date = datetime.strptime(date_str, "%d/%m/%Y")
     except:
+        print(f"[DEBUG] Fecha inválida detectada: {date_str}")
         return []
     if date < MIN_DATE:
+        print(f"[DEBUG] Fecha descartada por ser anterior a {MIN_DATE}: {date_str}")
         return []
 
     line_times = []
     for ln in lines:
         times = TIME_RX.findall(ln)
+        print(f"[DEBUG] Línea con fecha {date_str}: {ln} → horas detectadas: {times}")
         line_times.append([norm_time(t) for t in times])
 
     all_times = [t for lt in line_times for t in lt]
     if not all_times:
+        print(f"[DEBUG] Sin horas válidas en fecha {date_str}")
         return []
 
-    hi_top = None
-    hf_bottom = None
+    hi_top = all_times[0]
+    hf_bottom = all_times[-1]
 
-    first_line_times = line_times[0] if line_times else []
-    if len(first_line_times) >= 2:
-        hi_top = first_line_times[0]
-    else:
-        hi_top = all_times[0]
-
-    last_line_times = line_times[-1] if line_times else []
-    if len(last_line_times) >= 2:
-        hf_bottom = last_line_times[-1]
-    else:
-        hf_bottom = all_times[-1]
-
-    # Corrección: si no hay horas válidas o son iguales, descartar
-    if not hi_top or not hf_bottom or hi_top == hf_bottom:
+    if hi_top == hf_bottom:
+        print(f"[DEBUG] HI y HF iguales en fecha {date_str}, descartando")
         return []
 
+    print(f"[DEBUG] Registro válido: {date_str} HI={hi_top} HF={hf_bottom}")
     return [{
         "fecha": date.strftime("%d/%m/%Y"),
         "hi": hi_top,
         "hf": hf_bottom
     }]
-
-def parse_documents(files):
-    registros = []
-    seen_dates = set()
-    for f in files:
-        for row in parse_single_pdf(f):
-            if row["fecha"] not in seen_dates:
-                registros.append(row)
-                seen_dates.add(row["fecha"])
-    registros.sort(key=lambda r: datetime.strptime(r["fecha"], "%d/%m/%Y"))
-    return registros
