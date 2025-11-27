@@ -68,6 +68,7 @@ def extract_row(date_str, lines):
         date = datetime.strptime(date_str, "%d/%m/%Y")
     except:
         return []
+
     if date < MIN_DATE:
         return []
 
@@ -82,9 +83,7 @@ def extract_row(date_str, lines):
     # - HF_bottom: último tiempo que aparece en el bloque
     # Para robustez, buscamos en cada línea de derecha a izquierda las 4 últimas horas del bloque
     # y si no hay 4, usamos lo disponible.
-    all_times = []
-    for lt in line_times:
-        all_times.extend(lt)
+    all_times = [t for lt in line_times for t in lt]
 
     # Si no hay horas, no se analiza
     if not all_times:
@@ -116,6 +115,7 @@ def extract_row(date_str, lines):
         hf_bottom = all_times[-1]
 
     # Si HI/HF faltan o son iguales (celdas vacías), descartar
+    # Corrección: si no hay horas válidas o son iguales, descartar
     if not hi_top or not hf_bottom or hi_top == hf_bottom:
         return []
 
@@ -127,9 +127,15 @@ def extract_row(date_str, lines):
 
 def parse_documents(files):
     registros = []
+    seen_dates = set()
     for f in files:
-        registros.extend(parse_single_pdf(f))
+        for row in parse_single_pdf(f):
+            if row["fecha"] not in seen_dates:
+                registros.append(row)
+                seen_dates.add(row["fecha"])
     # Orden cronológico
     registros.sort(key=lambda r: datetime.strptime(r["fecha"], "%d/%m/%Y"))
-
+    
     return registros
+
+
