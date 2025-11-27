@@ -8,6 +8,10 @@ TIME_RX = re.compile(r"\b\d{1,2}:\d{2}\b")
 MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
 
 def norm_time(t):
+    """
+    Normaliza formato HH:MM a dos dígitos en la hora.
+    Nota: la hora puede ser >=24; la interpretación se hace en nocturnidad.py.
+    """
     hh, mm = t.split(":")
     return f"{int(hh):02d}:{mm}"
 
@@ -127,4 +131,5 @@ def parse_documents(files):
         registros.extend(parse_single_pdf(f))
     # Orden cronológico
     registros.sort(key=lambda r: datetime.strptime(r["fecha"], "%d/%m/%Y"))
+
     return registros
