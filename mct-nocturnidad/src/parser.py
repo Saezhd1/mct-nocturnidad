@@ -1,86 +1,71 @@
-import re
-import pdfplumber
-from datetime import datetime
+from flask import Flask, render_template, request, make_response
+from src.parser import parse_documents
+from src.nocturnidad import calcular_nocturnidad
+from src.aggregator import agregar_resumenes
+from src.utils import render_pdf
 
-DATE_RX = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
-TIME_RX = re.compile(r"\b\d{1,2}:\d{2}\b")
+app = Flask(__name__)
 
-MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
+@app.route("/")
+def index():
+    return render_template("index.html")
 
-def norm_time(t):
-    hh, mm = t.split(":")
-    return f"{int(hh):02d}:{mm}"
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    # Obtener los ficheros subidos
+    files = request.files.getlist("pdfs")
+    registros = parse_documents(files)
 
-def extract_lines(page):
-    return (page.extract_text() or "").splitlines()
+    # Logs de depuración
+    print("Número de registros parseados:", len(registros))
+    if registros:
+        print("Ejemplo de registros:", registros[:3])
+    else:
+        print("No se detectaron registros en el PDF")
 
-def parse_single_pdf(file):
-    rows = []
-    with pdfplumber.open(file) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
-            lines = extract_lines(page)
-            print(f"[DEBUG] Página {page_num}: {len(lines)} líneas extraídas")
+    # Calcular nocturnidad
+    detalle, resumen_mensual, resumen_anual, resumen_global = calcular_nocturnidad(registros)
 
-            buffer = []
-            for line in lines:
-                if "TABLA DE TOTALIZADOS" in line:
-                    break
-                buffer.append(line)
+    # Recalcular resúmenes con aggregator (si quieres usar esa lógica adicional)
+    resumen_mensual, resumen_anual, resumen_global = agregar_resumenes(detalle)
 
-            current_date = None
-            date_lines = []
+    # Renderizar la vista con los resultados
+    return render_template(
+        "results.html",
+        detalle=detalle,
+        resumen_mensual=resumen_mensual,
+        resumen_anual=resumen_anual,
+        resumen_global=resumen_global
+    )
 
-            for line in buffer:
-                m = DATE_RX.search(line)
-                if not m:
-                    if current_date:
-                        date_lines.append(line)
-                    continue
+@app.route("/download", methods=["POST"])
+def download():
+    # Recoger los datos enviados desde el formulario
+    detalle = request.form.get("detalle")
+    resumen_mensual = request.form.get("resumen_mensual")
+    resumen_anual = request.form.get("resumen_anual")
+    resumen_global = request.form.get("resumen_global")
 
-                if current_date and date_lines:
-                    rows.extend(extract_row(current_date, date_lines))
-                    date_lines = []
+    # Preparar contexto para la plantilla PDF
+    context = {
+        "detalle": detalle,
+        "resumen_mensual": resumen_mensual,
+        "resumen_anual": resumen_anual,
+        "resumen_global": resumen_global,
+    }
 
-                current_date = m.group(0)
-                date_lines = [line]
+    # Generar PDF con WeasyPrint usando utils.py
+    pdf_bytes = render_pdf(
+        template_name="pdf_report.html",
+        context=context,
+        base_url=app.root_path
+    )
 
-            if current_date and date_lines:
-                rows.extend(extract_row(current_date, date_lines))
+    # Enviar PDF como descarga
+    response = make_response(pdf_bytes)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = "attachment; filename=resultado_nocturnidad.pdf"
+    return response
 
-    print(f"[DEBUG] Total registros parseados: {len(rows)}")
-    return rows
-
-def extract_row(date_str, lines):
-    try:
-        date = datetime.strptime(date_str, "%d/%m/%Y")
-    except:
-        print(f"[DEBUG] Fecha inválida detectada: {date_str}")
-        return []
-    if date < MIN_DATE:
-        print(f"[DEBUG] Fecha descartada por ser anterior a {MIN_DATE}: {date_str}")
-        return []
-
-    line_times = []
-    for ln in lines:
-        times = TIME_RX.findall(ln)
-        print(f"[DEBUG] Línea con fecha {date_str}: {ln} → horas detectadas: {times}")
-        line_times.append([norm_time(t) for t in times])
-
-    all_times = [t for lt in line_times for t in lt]
-    if not all_times:
-        print(f"[DEBUG] Sin horas válidas en fecha {date_str}")
-        return []
-
-    hi_top = all_times[0]
-    hf_bottom = all_times[-1]
-
-    if hi_top == hf_bottom:
-        print(f"[DEBUG] HI y HF iguales en fecha {date_str}, descartando")
-        return []
-
-    print(f"[DEBUG] Registro válido: {date_str} HI={hi_top} HF={hf_bottom}")
-    return [{
-        "fecha": date.strftime("%d/%m/%Y"),
-        "hi": hi_top,
-        "hf": hf_bottom
-    }]
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
