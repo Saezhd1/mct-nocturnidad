@@ -1,7 +1,11 @@
 import pdfplumber
+import re
 from datetime import datetime, timedelta
 
 MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
+
+DATE_RX = re.compile(r"\d{2}/\d{2}/\d{4}")
+TIME_RX = re.compile(r"\d{1,2}:\d{2}")
 
 def normalizar_hora(hora_str, fecha):
     hh, mm = map(int, hora_str.split(":"))
@@ -15,50 +19,41 @@ def parse_documents(files):
     for file in files:
         with pdfplumber.open(file) as pdf:
             for page in pdf.pages:
-                tables = page.extract_tables()
-                if not tables:
+                text = page.extract_text()
+                if not text:
                     continue
 
-                for table in tables:
-                    headers = table[0]
-                    if not headers or "Fecha" not in headers:
+                for line in text.splitlines():
+                    # Buscar fecha en la línea
+                    m_date = DATE_RX.search(line)
+                    if not m_date:
                         continue
 
+                    fecha_str = m_date.group()
                     try:
-                        fecha_idx = headers.index("Fecha")
-                        hi_idx = headers.index("HI")
-                        hf_idx = headers.index("HF")
-                    except ValueError:
+                        fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
+                    except:
                         continue
 
-                    for row in table[1:]:
-                        if not row:
-                            continue
-                        fecha_str = row[fecha_idx]
-                        hi_str = row[hi_idx]
-                        hf_str = row[hf_idx]
+                    if fecha < MIN_DATE:
+                        continue
 
-                        if not fecha_str or not hi_str or not hf_str:
-                            continue
+                    # Buscar horas en la línea
+                    horas = TIME_RX.findall(line)
+                    if not horas:
+                        continue
 
-                        try:
-                            fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
-                        except:
-                            continue
+                    hi_val = horas[0]
+                    hf_val = horas[-1]
 
-                        if fecha < MIN_DATE:
-                            continue
+                    hi = normalizar_hora(hi_val, fecha)
+                    hf = normalizar_hora(hf_val, fecha)
 
-                        hi_val = hi_str.split()[0]
-                        hf_val = hf_str.split()[-1]
+                    registros.append({
+                        "fecha": fecha.strftime("%d/%m/%Y"),
+                        "hi": hi.strftime("%H:%M"),
+                        "hf": hf.strftime("%H:%M")
+                    })
 
-                        hi = normalizar_hora(hi_val, fecha)
-                        hf = normalizar_hora(hf_val, fecha)
-
-                        registros.append({
-                            "fecha": fecha.strftime("%d/%m/%Y"),
-                            "hi": hi.strftime("%H:%M"),
-                            "hf": hf.strftime("%H:%M")
-                        })
     print("DEBUG: registros extraídos =", len(registros))
     return registros
