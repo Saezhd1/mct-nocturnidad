@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 
 DATE_RX = re.compile(r"\d{2}/\d{2}/\d{4}")
 TIME_RX = re.compile(r"\d{1,2}:\d{2}")
-
 MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
 
 def normalizar_hora(hora_str, fecha):
@@ -19,21 +18,20 @@ def parse_documents(files):
     for file in files:
         with pdfplumber.open(file) as pdf:
             for page in pdf.pages:
-                text = page.extract_text()
-                if not text:
-                    continue
-
-                for line in text.splitlines():
-                    fecha_match = DATE_RX.search(line)
-                    if not fecha_match:
+                words = page.extract_words()
+                line = " ".join([w["text"] for w in words])
+                # Buscar todas las fechas en la página
+                for m_date in DATE_RX.finditer(line):
+                    fecha_str = m_date.group()
+                    try:
+                        fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
+                    except:
                         continue
-
-                    fecha_str = fecha_match.group()
-                    fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
                     if fecha < MIN_DATE:
                         continue
 
-                    horas = TIME_RX.findall(line)
+                    # Buscar todas las horas cercanas a esa fecha
+                    horas = TIME_RX.findall(line[m_date.end():])
                     if not horas:
                         continue
 
@@ -48,6 +46,5 @@ def parse_documents(files):
                         "hi": hi.strftime("%H:%M"),
                         "hf": hf.strftime("%H:%M")
                     })
-
     print("DEBUG: registros extraídos =", len(registros))
     return registros
