@@ -18,15 +18,20 @@ def parse_documents(files):
                 table = page.extract_table()
                 if not table:
                     continue
-                # La primera fila es el encabezado
+
                 headers = table[0]
-                if "Fecha" not in headers or "HI" not in headers or "HF" not in headers:
+                if not headers:
                     continue
 
-                fecha_idx = headers.index("Fecha")
-                hi_idx = headers.index("HI")
-                hf_idx = headers.index("HF")
+                # Buscar índices de columnas
+                try:
+                    fecha_idx = headers.index("Fecha")
+                    hi_idx = headers.index("HI")
+                    hf_idx = headers.index("HF")
+                except ValueError:
+                    continue
 
+                # Recorrer filas de la tabla
                 for row in table[1:]:
                     fecha_str = row[fecha_idx]
                     hi_str = row[hi_idx]
@@ -43,8 +48,12 @@ def parse_documents(files):
                     if fecha < MIN_DATE:
                         continue
 
-                    hi = normalizar_hora(hi_str.split()[0], fecha)
-                    hf = normalizar_hora(hf_str.split()[-1], fecha)
+                    # HI y HF pueden tener dos valores separados por espacio
+                    hi_val = hi_str.split()[0]
+                    hf_val = hf_str.split()[-1]
+
+                    hi = normalizar_hora(hi_val, fecha)
+                    hf = normalizar_hora(hf_val, fecha)
 
                     registros.append({
                         "fecha": fecha.strftime("%d/%m/%Y"),
