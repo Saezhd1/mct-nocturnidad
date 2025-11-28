@@ -2,10 +2,10 @@ import pdfplumber
 import re
 from datetime import datetime, timedelta
 
-MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
-
 DATE_RX = re.compile(r"\d{2}/\d{2}/\d{4}")
 TIME_RX = re.compile(r"\d{1,2}:\d{2}")
+
+MIN_DATE = datetime.strptime("30/03/2022", "%d/%m/%Y")
 
 def normalizar_hora(hora_str, fecha):
     hh, mm = map(int, hora_str.split(":"))
@@ -24,21 +24,15 @@ def parse_documents(files):
                     continue
 
                 for line in text.splitlines():
-                    # Buscar fecha en la línea
-                    m_date = DATE_RX.search(line)
-                    if not m_date:
+                    fecha_match = DATE_RX.search(line)
+                    if not fecha_match:
                         continue
 
-                    fecha_str = m_date.group()
-                    try:
-                        fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
-                    except:
-                        continue
-
+                    fecha_str = fecha_match.group()
+                    fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
                     if fecha < MIN_DATE:
                         continue
 
-                    # Buscar horas en la línea
                     horas = TIME_RX.findall(line)
                     if not horas:
                         continue
