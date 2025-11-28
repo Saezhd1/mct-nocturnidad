@@ -1,0 +1,90 @@
+/* Tipografía y estructura general */
+body {
+  font-family: Arial, sans-serif;
+  max-width: 900px;
+  margin: 20px auto;
+}
+
+/* Cabecera con logo y título */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+/* Logo en la web */
+.logo {
+  height: 64px;
+  width: auto;
+  vertical-align: middle;
+}
+
+/* Logo en el informe PDF */
+.logo-pdf {
+  height: 50px;
+  width: auto;
+  vertical-align: middle;
+}
+
+/* Responsive para móviles */
+@media (max-width: 480px) {
+  .logo {
+    height: 56px;
+  }
+}
+
+/* Sección del formulario */
+.form-section {
+  border: 1px solid #ddd;
+  padding: 12px;
+  border-radius: 6px;
+}
+
+/* Barra de progreso */
+.progress {
+  position: relative;
+  height: 16px;
+  background: #eee;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.progress .bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: #4a90e2;
+  border-radius: 8px;
+  transition: width 0.4s ease;
+}
+
+.progress.hidden {
+  display: none;
+}
+
+/* Tablas de resultados */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+th, td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+/* Elementos ocultos */
+.hidden {
+  display: none;
+}
+
+/* Botones */
+button {
+  padding: 8px 12px;
+  cursor: pointer;
+}
