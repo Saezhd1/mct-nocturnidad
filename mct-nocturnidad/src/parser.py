@@ -15,49 +15,50 @@ def parse_documents(files):
     for file in files:
         with pdfplumber.open(file) as pdf:
             for page in pdf.pages:
-                table = page.extract_table()
-                if not table:
+                tables = page.extract_tables()
+                if not tables:
                     continue
 
-                headers = table[0]
-                if not headers:
-                    continue
-
-                # Buscar índices de columnas
-                try:
-                    fecha_idx = headers.index("Fecha")
-                    hi_idx = headers.index("HI")
-                    hf_idx = headers.index("HF")
-                except ValueError:
-                    continue
-
-                # Recorrer filas de la tabla
-                for row in table[1:]:
-                    fecha_str = row[fecha_idx]
-                    hi_str = row[hi_idx]
-                    hf_str = row[hf_idx]
-
-                    if not fecha_str or not hi_str or not hf_str:
+                for table in tables:
+                    headers = table[0]
+                    if not headers or "Fecha" not in headers:
                         continue
 
                     try:
-                        fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
-                    except:
+                        fecha_idx = headers.index("Fecha")
+                        hi_idx = headers.index("HI")
+                        hf_idx = headers.index("HF")
+                    except ValueError:
                         continue
 
-                    if fecha < MIN_DATE:
-                        continue
+                    for row in table[1:]:
+                        if not row:
+                            continue
+                        fecha_str = row[fecha_idx]
+                        hi_str = row[hi_idx]
+                        hf_str = row[hf_idx]
 
-                    # HI y HF pueden tener dos valores separados por espacio
-                    hi_val = hi_str.split()[0]
-                    hf_val = hf_str.split()[-1]
+                        if not fecha_str or not hi_str or not hf_str:
+                            continue
 
-                    hi = normalizar_hora(hi_val, fecha)
-                    hf = normalizar_hora(hf_val, fecha)
+                        try:
+                            fecha = datetime.strptime(fecha_str, "%d/%m/%Y")
+                        except:
+                            continue
 
-                    registros.append({
-                        "fecha": fecha.strftime("%d/%m/%Y"),
-                        "hi": hi.strftime("%H:%M"),
-                        "hf": hf.strftime("%H:%M")
-                    })
+                        if fecha < MIN_DATE:
+                            continue
+
+                        hi_val = hi_str.split()[0]
+                        hf_val = hf_str.split()[-1]
+
+                        hi = normalizar_hora(hi_val, fecha)
+                        hf = normalizar_hora(hf_val, fecha)
+
+                        registros.append({
+                            "fecha": fecha.strftime("%d/%m/%Y"),
+                            "hi": hi.strftime("%H:%M"),
+                            "hf": hf.strftime("%H:%M")
+                        })
+    print("DEBUG: registros extraídos =", len(registros))
     return registros
