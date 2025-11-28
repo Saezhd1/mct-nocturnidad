@@ -1,144 +1,198 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <title>MCT cálculo complemento de nocturnidad</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <meta charset="UTF-8">
+  <title>Análisis de Nocturnidad — Múltiples PDFs</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h2 { margin-bottom: 8px; }
+    #fileInput { margin: 10px 0 20px; }
+    .mes { margin: 28px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #333; padding: 6px; text-align: center; }
+    th { background: #eee; }
+    caption { font-weight: bold; margin-bottom: 10px; }
+    .resumen { margin-top: 32px; }
+  </style>
 </head>
 <body>
-  <header class="header">
-    <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo MCT" class="logo" />
-    <h1>MCT cálculo complemento de nocturnidad</h1>
-  </header>
 
-  <section class="form-section">
-    <form id="analyze-form">
-      <div>
-        <label>Código de empleado</label>
-        <input name="empleado" required />
-      </div>
-      <div>
-        <label>Nombre completo</label>
-        <input name="nombre" required />
-      </div>
-      <div>
-        <label>Adjuntar PDFs (múltiples)</label>
-        <input type="file" name="files" id="files" accept="application/pdf" multiple required />
-      </div>
+<h2>Analizador de Nocturnidad (multi-PDF)</h2>
+<input type="file" id="fileInput" accept="application/pdf" multiple />
+<div id="output"></div>
+<div id="resumen" class="resumen"></div>
 
-      <button type="submit">Analizar</button>
-    </form>
+<script>
+// --- Utilidades de tiempo ---
+function toMinutes(hora) {
+  const [h, m] = hora.split(":").map(Number);
+  return h * 60 + m;
+}
+function parseFecha(fechaStr) {
+  const [d, m, y] = fechaStr.split("/").map(Number);
+  return new Date(y, m - 1, d);
+}
+function formatEuro(n) {
+  return n.toFixed(2) + " €";
+}
 
-    <div id="progress" class="progress hidden">
-      <div class="bar" id="bar"></div>
-      <span id="progress-text">Procesando PDFs…</span>
-    </div>
-  </section>
+// --- Rangos nocturnos ---
+const T1_START = 4 * 60, T1_END = 6 * 60;          // 04:00–06:00
+const T2_START = 22 * 60, T2_END = 24 * 60 + 59;    // 22:00–00:59
 
-  <section id="results" class="hidden">
-    <h2>Resultados previos</h2>
-    <div id="summary"></div>
-    <table>
-      <thead>
+// --- Tarifa por fecha ---
+const TARIFA_CAMBIO = new Date(2025, 3, 25); // 25/04/2025
+function tarifaPorFecha(fechaStr) {
+  const f = parseFecha(fechaStr);
+  return f <= TARIFA_CAMBIO ? 0.05 : 0.062;
+}
+
+// --- Cálculo de nocturnidad para un registro ---
+function minutosNocturnosValidados(hiStr, hfStr) {
+  const hi = toMinutes(hiStr);
+  const hf = toMinutes(hfStr);
+
+  // Regla fija: excluir si empieza antes de 04:00 o termina después de 00:59
+  if (hi < T1_START || hf > T2_END) return 0;
+
+  let minutos = 0;
+
+  // Solapamiento con Tramo 1 (04:00–06:00)
+  if (hi < T1_END && hf > T1_START) {
+    const start = Math.max(hi, T1_START);
+    const end = Math.min(hf, T1_END);
+    minutos += Math.max(0, end - start);
+  }
+
+  // Solapamiento con Tramo 2 (22:00–00:59)
+  if (hi < T2_END && hf > T2_START) {
+    const start = Math.max(hi, T2_START);
+    const end = Math.min(hf, T2_END);
+    minutos += Math.max(0, end - start);
+  }
+
+  return minutos;
+}
+
+// --- Parser de texto PDF a registros (Fecha, HI, HF) ---
+// Ajustado al patrón tal como lo usamos en los ejemplos: dd/mm/yyyy ... HH:MM ... HH:MM
+function extraerRegistros(textoPlano) {
+  const regex = /(\d{2}\/\d{2}\/\d{4})[^0-9]*(\d{2}:\d{2})[^0-9]*(\d{2}:\d{2})/g;
+  const registros = [];
+  let m;
+  while ((m = regex.exec(textoPlano)) !== null) {
+    registros.push({ fecha: m[1], hi: m[2], hf: m[3] });
+  }
+  return registros;
+}
+
+// --- Render de una tabla para un mes/archivo ---
+function renderTabla(archivoNombre, registrosValidos) {
+  let totalMin = 0, totalImp = 0;
+  let filas = "";
+
+  registrosValidos.forEach(r => {
+    const minutos = minutosNocturnosValidados(r.hi, r.hf);
+    if (minutos > 0) {
+      const imp = minutos * tarifaPorFecha(r.fecha);
+      totalMin += minutos;
+      totalImp += imp;
+      filas += `
         <tr>
-          <th>Fecha</th>
-          <th>HI</th>
-          <th>HF</th>
-          <th>Minutos nocturnos</th>
-          <th>Importe (€)</th>
-        </tr>
+          <td>${r.fecha}</td>
+          <td>${r.hi} – ${r.hf}</td>
+          <td>${minutos}</td>
+          <td>${formatEuro(imp)}</td>
+        </tr>`;
+    }
+  });
+
+  const tablaHTML = `
+    <div class="mes">
+      <table>
+        <caption>${archivoNombre} — Días con nocturnidad</caption>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>HI / HF</th>
+            <th>Minutos nocturnos</th>
+            <th>Importe (€)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filas || `<tr><td colspan="4">Sin días con nocturnidad válidos</td></tr>`}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2"><strong>TOTAL MES</strong></td>
+            <td>${totalMin} min</td>
+            <td>${formatEuro(totalImp)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+  return { html: tablaHTML, totalMin, totalImp };
+}
+
+// --- Lectura de un PDF con PDF.js a texto plano ---
+async function leerPDFaTexto(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
+  let texto = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    // Concatenamos en orden para mantener líneas completas (como en tus ejemplos)
+    texto += content.items.map(it => it.str).join(" ") + "\n";
+  }
+  return texto;
+}
+
+// --- Procesador de múltiples archivos ---
+document.getElementById("fileInput").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
+
+  const output = document.getElementById("output");
+  output.innerHTML = "Procesando archivos…";
+
+  let resumen = [];
+  let htmlTotal = "";
+
+  // Procesar en serie para mantener orden y evitar confusión
+  for (const file of files) {
+    const buffer = await file.arrayBuffer();
+    const texto = await leerPDFaTexto(buffer);
+    const registros = extraerRegistros(texto);
+
+    // Los PDFs vienen exactamente como en los ejemplos: tomamos cada (fecha, hi, hf)
+    // y filtramos solo días con minutos nocturnos > 0 tras aplicar la regla fija.
+    const tabla = renderTabla(file.name, registros);
+    htmlTotal += tabla.html;
+    resumen.push({ nombre: file.name, min: tabla.totalMin, imp: tabla.totalImp });
+  }
+
+  output.innerHTML = htmlTotal;
+
+  // Resumen comparativo final
+  const resumenHTML = `
+    <table>
+      <caption>Resumen comparativo</caption>
+      <thead>
+        <tr><th>Archivo</th><th>Minutos nocturnos</th><th>Importe total (€)</th></tr>
       </thead>
-      <tbody id="detail-body"></tbody>
-    </table>
-    <button id="download-btn">Descargar informe PDF</button>
-  </section>
+      <tbody>
+        ${resumen.map(r => `
+          <tr>
+            <td>${r.nombre}</td>
+            <td>${r.min} min</td>
+            <td>${formatEuro(r.imp)}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+  document.getElementById("resumen").innerHTML = resumenHTML;
+});
+</script>
 
-  <script>
-    const form = document.getElementById('analyze-form');
-    const progress = document.getElementById('progress');
-    const bar = document.getElementById('bar');
-    const progressText = document.getElementById('progress-text');
-    const results = document.getElementById('results');
-    const detailBody = document.getElementById('detail-body');
-    const summaryDiv = document.getElementById('summary');
-    const downloadBtn = document.getElementById('download-btn');
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      progress.classList.remove('hidden');
-      bar.style.width = '20%';
-      progressText.textContent = 'Subiendo y validando…';
-
-      const fd = new FormData(form);
-      const filesInput = document.getElementById('files');
-      for (const f of filesInput.files) fd.append('files', f);
-
-      bar.style.width = '40%';
-      progressText.textContent = 'Analizando PDFs…';
-
-      const res = await fetch('/analyze', { method: 'POST', body: fd });
-      if (!res.ok) {
-        progressText.textContent = 'Error en el análisis';
-        return;
-      }
-      bar.style.width = '80%';
-      progressText.textContent = 'Generando resultados…';
-
-      const data = await res.json();
-
-      // Pintar detalle
-      detailBody.innerHTML = '';
-      for (const d of data.detalle) {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td>${d.fecha}</td>
-          <td>${d.hi}</td>
-          <td>${d.hf}</td>
-          <td>${d.minutos}</td>
-          <td>${d.importe.toFixed(2)}</td>
-        `;
-        detailBody.appendChild(tr);
-      }
-
-      // Resumen
-      summaryDiv.innerHTML = `
-        <h3>Resumen mensual</h3>
-        ${Object.entries(data.resumen_mensual).map(([k,v]) => `<div>${k}: ${v.minutos} min, ${v.importe.toFixed(2)} €</div>`).join('')}
-        <h3>Resumen anual</h3>
-        ${Object.entries(data.resumen_anual).map(([k,v]) => `<div>${k}: ${v.minutos} min, ${v.importe.toFixed(2)} €</div>`).join('')}
-        <h3>Resumen global</h3>
-        <div>${data.resumen_global.minutos} min, ${data.resumen_global.importe.toFixed(2)} €</div>
-      `;
-
-      bar.style.width = '100%';
-      progressText.textContent = 'Completado';
-      results.classList.remove('hidden');
-
-      // Descargar PDF
-      downloadBtn.onclick = async () => {
-        const payload = {
-          empleado: data.empleado,
-          nombre: data.nombre,
-          detalle: data.detalle,
-          resumen_mensual: data.resumen_mensual,
-          resumen_anual: data.resumen_anual,
-          resumen_global: data.resumen_global
-        };
-        const res = await fetch('/download', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `MCT_nocturnidad_${data.empleado}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      };
-    });
-  </script>
 </body>
 </html>
